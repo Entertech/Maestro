@@ -62,6 +62,7 @@ object InspectScreenTool {
                     val platform = when {
                         deviceId == "chromium" -> "web"
                         device != null -> device.platform.name.lowercase()
+                        session.platform != null -> session.platform.name.lowercase()
                         else -> error("Device state unavailable for $deviceId; cannot determine platform for schema")
                     }
                     ViewHierarchyFormatters.extractCompactJsonOutput(viewHierarchy.root, platform)

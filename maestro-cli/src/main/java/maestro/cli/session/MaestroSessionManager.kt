@@ -23,6 +23,7 @@ import dadb.Dadb
 import dadb.adbserver.AdbServer
 import ios.LocalIOSDevice
 import ios.devicectl.DeviceControlIOSDevice
+import ios.mirror.MirrorIOSDevice
 import device.SimctlIOSDevice
 import ios.xctest.XCTestIOSDevice
 import maestro.Maestro
@@ -150,16 +151,38 @@ object MaestroSessionManager {
         }
 
         if (host == null) {
+            if (
+                mirrorDeviceId(deviceId) != null &&
+                (platform == null || platform == Platform.IOS) &&
+                iosRealDeviceBackend() == IOSRealDeviceBackend.MIRROR
+            ) {
+                val selectedMirrorDeviceId = mirrorDeviceId(deviceId)!!
+                PrintUtils.message("Using iOS mirror backend for $selectedMirrorDeviceId; skipping XCTest device discovery.")
+                return SelectedDevice(
+                    platform = Platform.IOS,
+                    deviceId = selectedMirrorDeviceId,
+                    deviceType = Device.DeviceType.REAL,
+                )
+            }
+
             val device = PickDeviceInteractor.pickDevice(deviceId, driverHostPort, platform, deviceIndex)
 
             if (device.deviceType == Device.DeviceType.REAL && device.platform == Platform.IOS) {
                 PrintUtils.message("Detected connected iPhone with ${device.instanceId}!")
-                val driverBuilder = DriverBuilder()
-                RealIOSDeviceDriver(
-                    destination = "platform=iOS,id=${device.instanceId}",
-                    teamId = teamId,
-                    driverBuilder = driverBuilder
-                ).validateAndUpdateDriver()
+                when (iosRealDeviceBackend()) {
+                    IOSRealDeviceBackend.XCTEST -> {
+                        val driverBuilder = DriverBuilder()
+                        RealIOSDeviceDriver(
+                            destination = "platform=iOS,id=${device.instanceId}",
+                            teamId = teamId,
+                            driverBuilder = driverBuilder
+                        ).validateAndUpdateDriver()
+                    }
+
+                    IOSRealDeviceBackend.MIRROR -> {
+                        PrintUtils.message("Using iOS mirror backend; skipping XCTest driver setup.")
+                    }
+                }
             }
             return SelectedDevice(
                 platform = device.platform,
@@ -223,6 +246,7 @@ object MaestroSessionManager {
                     Platform.WEB -> pickWebDevice(isStudio, isHeadless, screenSize)
                 },
                 device = selectedDevice.device,
+                platform = selectedDevice.device.platform,
             )
 
             selectedDevice.platform == Platform.ANDROID -> MaestroSession(
@@ -235,6 +259,7 @@ object MaestroSessionManager {
                     selectedDevice.deviceId,
                 ),
                 device = null,
+                platform = selectedDevice.platform,
             )
 
             selectedDevice.platform == Platform.IOS -> MaestroSession(
@@ -246,11 +271,13 @@ object MaestroSessionManager {
                     platformConfiguration = platformConfiguration,
                 ),
                 device = null,
+                platform = selectedDevice.platform,
             )
 
             selectedDevice.platform == Platform.WEB -> MaestroSession(
                 maestro = pickWebDevice(isStudio, isHeadless, screenSize),
-                device = null
+                device = null,
+                platform = selectedDevice.platform,
             )
 
             else -> error("Unable to create Maestro session")
@@ -315,6 +342,18 @@ object MaestroSessionManager {
         reinstallDriver: Boolean,
         platformConfiguration: PlatformConfiguration?,
     ): Maestro {
+        val selectedMirrorDeviceId = mirrorDeviceId(deviceId)
+        if (selectedMirrorDeviceId != null && iosRealDeviceBackend() == IOSRealDeviceBackend.MIRROR) {
+            return createIOS(
+                selectedMirrorDeviceId,
+                openDriver,
+                driverHostPort,
+                reinstallDriver,
+                deviceType = Device.DeviceType.REAL,
+                platformConfiguration = platformConfiguration,
+            )
+        }
+
         val device = PickDeviceInteractor.pickDevice(deviceId, driverHostPort)
         return createIOS(
             device.instanceId,
@@ -357,6 +396,18 @@ object MaestroSessionManager {
         platformConfiguration: PlatformConfiguration?,
         deviceType: Device.DeviceType,
     ): Maestro {
+
+        if (deviceType == Device.DeviceType.REAL && iosRealDeviceBackend() == IOSRealDeviceBackend.MIRROR) {
+            val mirrorDevice = MirrorIOSDevice(deviceId = deviceId)
+            val iosDriver = IOSDriver(
+                iosDevice = mirrorDevice,
+                insights = CliInsights
+            )
+            return Maestro.ios(
+                driver = iosDriver,
+                openDriver = openDriver || mirrorDevice.isShutdown(),
+            )
+        }
 
         val iOSDeviceType = when (deviceType) {
             Device.DeviceType.REAL -> IOSDeviceType.REAL
@@ -449,6 +500,29 @@ object MaestroSessionManager {
         return Maestro.web(isStudio, isHeadless, screenSize)
     }
 
+    private fun iosRealDeviceBackend(): IOSRealDeviceBackend {
+        return when (System.getenv("MAESTRO_IOS_REAL_BACKEND")?.lowercase()) {
+            null, "", "xctest" -> IOSRealDeviceBackend.XCTEST
+            "mirror", "mirroir" -> IOSRealDeviceBackend.MIRROR
+            else -> throw IllegalArgumentException(
+                "Unsupported MAESTRO_IOS_REAL_BACKEND. Expected 'xctest' or 'mirror'."
+            )
+        }
+    }
+
+    fun isIOSMirrorBackendEnabled(): Boolean {
+        return iosRealDeviceBackend() == IOSRealDeviceBackend.MIRROR
+    }
+
+    private fun mirrorDeviceId(deviceId: String?): String? {
+        return System.getenv(MirrorIOSDevice.DEVICE_ID_ENV)?.takeIf { it.isNotBlank() } ?: deviceId
+    }
+
+    private enum class IOSRealDeviceBackend {
+        XCTEST,
+        MIRROR,
+    }
+
     private data class SelectedDevice(
         val platform: Platform,
         val device: Device.Connected? = null,
@@ -461,6 +535,7 @@ object MaestroSessionManager {
     data class MaestroSession(
         val maestro: Maestro,
         val device: Device? = null,
+        val platform: Platform? = device?.platform,
     ) {
 
         fun close() {

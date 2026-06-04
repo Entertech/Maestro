@@ -76,6 +76,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.absolutePathString
 import kotlin.math.roundToInt
 import maestro.device.Platform
+import ios.mirror.MirrorIOSDevice
 
 @CommandLine.Command(
     name = "test",
@@ -328,6 +329,16 @@ class TestCommand : Callable<Int> {
      * Get the list of device IDs that will be used for test execution
      */
     private fun getDeviceIds(plan: ExecutionPlan): List<String> {
+        if (isIOSMirrorRun(plan)) {
+            return getPassedOptionsDeviceIds(plan)
+                .ifEmpty {
+                    listOfNotNull(
+                        System.getenv(MirrorIOSDevice.DEVICE_ID_ENV)?.takeIf { it.isNotBlank() }
+                            ?: "iphone"
+                    )
+                }
+        }
+
         val includeWeb = executionPlanIncludesWebFlow(plan)
         val connectedDevices = DeviceService.listConnectedDevices(
             includeWeb = includeWeb,
@@ -371,20 +382,30 @@ class TestCommand : Callable<Int> {
             port = parent?.port,
         )
         val availableDevicesIds = connectedDevices.map { it.instanceId }.toSet()
-        val deviceIds = getPassedOptionsDeviceIds(plan)
-            .filter { device ->
-                if (device !in availableDevicesIds) {
-                    throw CliError("Device $device was requested, but it is not connected.")
-                } else {
-                    true
+        val requestedDeviceIds = getPassedOptionsDeviceIds(plan)
+        val deviceIds = if (isIOSMirrorRun(plan)) {
+            requestedDeviceIds.ifEmpty {
+                listOfNotNull(
+                    System.getenv(MirrorIOSDevice.DEVICE_ID_ENV)?.takeIf { it.isNotBlank() }
+                        ?: "iphone"
+                )
+            }
+        } else {
+            requestedDeviceIds
+                .filter { device ->
+                    if (device !in availableDevicesIds) {
+                        throw CliError("Device $device was requested, but it is not connected.")
+                    } else {
+                        true
+                    }
                 }
-            }
-            .ifEmpty {
-                val platform = platform ?: parent?.platform
-                connectedDevices
-                    .filter { platform == null || it.platform == Platform.fromString(platform) }
-                    .map { it.instanceId }.toSet()
-            }
+                .ifEmpty {
+                    val platform = platform ?: parent?.platform
+                    connectedDevices
+                        .filter { platform == null || it.platform == Platform.fromString(platform) }
+                        .map { it.instanceId }.toSet()
+                }
+        }
             .toList()
 
         val missingDevices = requestedShards - deviceIds.size
@@ -669,6 +690,14 @@ class TestCommand : Callable<Int> {
         .map { it.trim() }
         .filter { it.isNotBlank() }
       return deviceIds
+    }
+
+    private fun isIOSMirrorRun(plan: ExecutionPlan): Boolean {
+        if (!MaestroSessionManager.isIOSMirrorBackendEnabled()) return false
+        if (executionPlanIncludesWebFlow(plan)) return false
+
+        val selectedPlatform = platform ?: parent?.platform
+        return selectedPlatform == null || Platform.fromString(selectedPlatform) == Platform.IOS
     }
 
     private fun printExitDebugMessage() {
