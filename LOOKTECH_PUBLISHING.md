@@ -54,3 +54,9 @@ Manual release upload from GitHub Actions:
 ```bash
 gh workflow run publish-release.yaml -R Entertech/Maestro --ref main
 ```
+
+To recover a single failed Central Portal component validation without re-uploading every module, pass the module name:
+
+```bash
+gh workflow run publish-release.yaml -R Entertech/Maestro --ref main -f module=maestro-cli
+```
