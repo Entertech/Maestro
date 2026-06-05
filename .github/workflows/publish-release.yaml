@@ -9,11 +9,12 @@ on:
 env:
   ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
   ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
+  ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: github.repository == 'mobile-dev-inc/maestro'
+    if: github.repository == 'Entertech/Maestro'
 
     steps:
       - name: Clone repository
