@@ -20,6 +20,11 @@ on:
           - maestro-ai
           - maestro-web
           - maestro-cli
+      auto_release:
+        description: 'Automatically release the Maven Central deployment after upload'
+        required: false
+        type: boolean
+        default: true
   push:
     tags:
       - 'v*'
@@ -29,6 +34,7 @@ env:
   ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
   ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_IN_MEMORY_KEY_ID }}
   PUBLISH_MODULE: ${{ github.event_name == 'workflow_dispatch' && inputs.module || 'all' }}
+  AUTO_RELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.auto_release }}
 
 jobs:
   publish:
@@ -50,90 +56,49 @@ jobs:
         run: |
           echo "VERSION_NAME=$(cat gradle.properties | grep -w "VERSION_NAME" | cut -d'=' -f2)" >> $GITHUB_ENV
 
-      - name: Upload Maestro utils release
-        run: ./gradlew clean :maestro-utils:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-utils') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
+      - name: Publish Maven Central release
+        run: |
+          if [[ "$VERSION_NAME" == *"-SNAPSHOT" ]]; then
+            echo "Skipping Maven Central release for snapshot version $VERSION_NAME"
+            exit 0
+          fi
 
-      - name: Upload Maestro client release
-        run: ./gradlew clean :maestro-client:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-client') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
+          case "$PUBLISH_MODULE" in
+            all)
+              modules=(
+                maestro-utils
+                maestro-client
+                maestro-ios
+                maestro-orchestra
+                maestro-orchestra-models
+                maestro-proto
+                maestro-ios-driver
+                maestro-ai
+                maestro-web
+                maestro-cli
+              )
+              ;;
+            maestro-utils|maestro-client|maestro-ios|maestro-orchestra|maestro-orchestra-models|maestro-proto|maestro-ios-driver|maestro-ai|maestro-web|maestro-cli)
+              modules=("$PUBLISH_MODULE")
+              ;;
+            *)
+              echo "Unsupported module: $PUBLISH_MODULE"
+              exit 1
+              ;;
+          esac
 
-      - name: Upload Maestro ios release
-        run: ./gradlew clean :maestro-ios:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-ios') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
+          if [[ "$AUTO_RELEASE" == "true" ]]; then
+            publish_task="publishAndReleaseToMavenCentral"
+          else
+            publish_task="publishToMavenCentral"
+          fi
 
-      - name: Upload Maestro orchestra release
-        run: ./gradlew clean :maestro-orchestra:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-orchestra') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
+          tasks=()
+          for module in "${modules[@]}"; do
+            tasks+=(":$module:$publish_task")
+          done
 
-      - name: Upload Maestro Orchestra Models release
-        run: ./gradlew clean :maestro-orchestra-models:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-orchestra-models') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
-
-      - name: Upload Maestro Proto release
-        run: ./gradlew clean :maestro-proto:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-proto') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
-
-      - name: Upload Maestro XCUiTest Driver
-        run: ./gradlew clean :maestro-ios-driver:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-ios-driver') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
-
-      - name: Upload Maestro AI release
-        run: ./gradlew clean :maestro-ai:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-ai') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
-
-      - name: Upload Maestro Web release
-        run: ./gradlew clean :maestro-web:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-web') }}
-        env:
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
-          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ env.ORG_GRADLE_PROJECT_mavenCentralUsername }}
-          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ env.ORG_GRADLE_PROJECT_mavenCentralPassword }}
-
-      - name: Upload Maestro CLI release
-        run: ./gradlew clean :maestro-cli:publishToMavenCentral --no-daemon --no-parallel
-        if: ${{ !endsWith(env.VERSION_NAME, '-SNAPSHOT') && (env.PUBLISH_MODULE == 'all' || env.PUBLISH_MODULE == 'maestro-cli') }}
+          ./gradlew clean "${tasks[@]}" --no-daemon --no-parallel
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
