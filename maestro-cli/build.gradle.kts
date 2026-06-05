@@ -37,6 +37,7 @@ tasks.named<Jar>("jar") {
     from("../maestro-ios-xctest-runner") {
         into("driver/ios")
         include(
+            "MaestroDriverLib/**",
             "maestro-driver-ios/**",
             "maestro-driver-iosUITests/**",
             "maestro-driver-ios.xcodeproj/**",
@@ -357,6 +358,7 @@ tasks.register<Copy>("createTestResources") {
     from("../maestro-ios-xctest-runner") {
         into("driver/ios")
         include(
+            "MaestroDriverLib/**",
             "maestro-driver-ios/**",
             "maestro-driver-iosUITests/**",
             "maestro-driver-ios.xcodeproj/**"
