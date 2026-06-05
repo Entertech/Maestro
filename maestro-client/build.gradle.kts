@@ -190,7 +190,7 @@ tasks.named("compileKotlin", KotlinCompilationTask::class.java) {
 }
 
 mavenPublishing {
-    publishToMavenCentral(true)
+    publishToMavenCentral()
     signAllPublications()
 }
 

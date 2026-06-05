@@ -14,7 +14,7 @@ application {
 }
 
 mavenPublishing {
-    publishToMavenCentral(true)
+    publishToMavenCentral()
     signAllPublications()
 }
 

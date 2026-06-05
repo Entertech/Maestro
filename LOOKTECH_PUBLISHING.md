@@ -22,19 +22,24 @@ JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home ./gradl
   publishToMavenLocal
 ```
 
-The snapshot override is intentional for local smoke tests: the Maven publish plugin skips signing for `SNAPSHOT` versions. Release publication with `2.6.0-looktech.1` requires a verified `ai.looktech` namespace, signing credentials, and repository credentials. Do not publish under upstream `dev.mobile` coordinates from this fork.
+The snapshot override is intentional for local smoke tests: the Maven publish plugin skips signing for `SNAPSHOT` versions. Release publication with `2.6.0-looktech.1` requires the same Central Portal user token and signing credentials used by the other Entertech `ai.looktech` libraries. Do not publish under upstream `dev.mobile` coordinates from this fork.
 
-GitHub Actions release publishing uses `.github/workflows/publish-release.yaml` and requires these repository secrets:
+GitHub Actions release publishing uses `.github/workflows/publish-release.yaml`. The workflow uploads every Maestro module to Maven Central but does not automatically release the deployment; finish the release manually in Central Portal after the workflow succeeds.
+
+Configure these repository variables and secrets, matching the existing `lt-vad` / `lt-rpc-*` publishing convention:
 
 ```text
-ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME
-ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD
-SIGNING_PRIVATE_KEY
-SIGNING_PASSWORD
-SIGNING_KEY_ID
+Variable:
+MAVEN_CENTRAL_USERNAME
+
+Secrets:
+MAVEN_CENTRAL_PASSWORD
+SIGNING_IN_MEMORY_KEY
+SIGNING_IN_MEMORY_KEY_ID
+SIGNING_IN_MEMORY_KEY_PASSWORD
 ```
 
-The workflow maps those secrets to the Gradle properties expected by the Maven publish plugin:
+The workflow maps those values to the Gradle properties expected by the Maven publish plugin:
 
 ```text
 mavenCentralUsername
@@ -42,4 +47,10 @@ mavenCentralPassword
 signingInMemoryKey
 signingInMemoryKeyPassword
 signingInMemoryKeyId
+```
+
+Manual release upload from GitHub Actions:
+
+```bash
+gh workflow run publish-release.yaml -R Entertech/Maestro --ref main
 ```

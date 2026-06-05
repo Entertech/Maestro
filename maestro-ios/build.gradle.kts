@@ -1,5 +1,4 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
-import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     id("maven-publish")
@@ -59,7 +58,7 @@ tasks.named("compileKotlin", KotlinCompilationTask::class.java) {
 }
 
 mavenPublishing {
-    publishToMavenCentral(true)
+    publishToMavenCentral()
     signAllPublications()
 }
 

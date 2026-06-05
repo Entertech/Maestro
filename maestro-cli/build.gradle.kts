@@ -383,7 +383,7 @@ tasks.shadowJar {
 }
 
 mavenPublishing {
-    publishToMavenCentral(true)
+    publishToMavenCentral()
     signAllPublications()
 }
 

@@ -8,7 +8,7 @@ plugins {
 }
 
 mavenPublishing {
-    publishToMavenCentral(true)
+    publishToMavenCentral()
     signAllPublications()
 }
 
