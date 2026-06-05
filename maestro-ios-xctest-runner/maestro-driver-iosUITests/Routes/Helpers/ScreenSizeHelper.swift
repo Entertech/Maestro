@@ -1,6 +1,7 @@
 import XCTest
 import MaestroDriverLib
 
+// Modified by Entertech in 2026 for iOS real-device orientation fallbacks.
 struct ScreenSizeHelper {
 
     private static var cachedSize: (Float, Float)?

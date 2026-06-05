@@ -20,7 +20,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-group = "dev.mobile"
+group = providers.gradleProperty("GROUP").get()
 
 val CLI_VERSION: String by project
 
@@ -393,14 +393,14 @@ jreleaser {
 
     project {
         name.set("Maestro CLI")
-        description.set("The easiest way to automate UI testing for your mobile app")
+        description.set("Looktech-maintained Maestro CLI fork for cross-platform UI automation")
         links {
-            homepage.set("https://maestro.mobile.dev")
-            bugTracker.set("https://github.com/mobile-dev-inc/maestro/issues")
+            homepage.set("https://github.com/Entertech/Maestro")
+            bugTracker.set("https://github.com/Entertech/Maestro/issues")
         }
-        authors.set(listOf("Dmitry Zaytsev", "Amanjeet Singh", "Leland Takamine", "Arthur Saveliev", "Axel Niklasson", "Berik Visschers"))
+        authors.set(listOf("mobile.dev contributors", "Entertech"))
         license.set("Apache-2.0")
-        copyright.set("mobile.dev 2024")
+        copyright.set("mobile.dev contributors, Entertech modifications 2026")
     }
 
     distributions {
@@ -417,8 +417,8 @@ jreleaser {
 
             release {
                 github {
-                    repoOwner.set("mobile-dev-inc")
-                    name.set("maestro")
+                    repoOwner.set("Entertech")
+                    name.set("Maestro")
                     tagName.set("cli-$CLI_VERSION")
                     releaseName.set("CLI $CLI_VERSION")
                     overwrite.set(true)
@@ -431,7 +431,7 @@ jreleaser {
                         content.set("""
                             [See changelog in the CHANGELOG.md file][link]
 
-                            [link]: https://github.com/mobile-dev-inc/maestro/blob/main/CHANGELOG.md#{{changelogVersionHeader}}
+                            [link]: https://github.com/Entertech/Maestro/blob/main/CHANGELOG.md#{{changelogVersionHeader}}
                         """.trimIndent()
                         )
                     }
@@ -450,7 +450,7 @@ jreleaser {
             templateDirectory.set(file("src/jreleaser/distributions/maestro/brew"))
 
             repoTap {
-                repoOwner.set("mobile-dev-inc")
+                repoOwner.set("Entertech")
                 name.set("homebrew-tap")
             }
 
