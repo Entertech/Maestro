@@ -352,7 +352,27 @@ class IOSDriver(
         }
     }
 
-    override fun backPress() {}
+    override fun backPress() {
+        metrics.measured("operation", mapOf("command" to "backPress")) {
+            // iOS has no hardware back button. The conventional equivalent is the
+            // swipe-from-left-edge "back" gesture: swipe horizontally from near the
+            // left edge towards the center at mid-screen height.
+            val deviceInfo = deviceInfo()
+            val width = deviceInfo.widthGrid
+            val height = deviceInfo.heightGrid
+
+            // Fall back to reasonable absolute points if the screen size is unavailable.
+            val startX = if (width > 0) 0.01.asPercentOf(width) else 5
+            val endX = if (width > 0) 0.45.asPercentOf(width) else 200
+            val midY = if (height > 0) 0.5.asPercentOf(height) else 400
+
+            swipe(
+                start = Point(startX, midY),
+                end = Point(endX, midY),
+                durationMs = 300,
+            )
+        }
+    }
 
     override fun hideKeyboard() {
         metrics.measured("operation", mapOf("command" to "hideKeyboard")) {
@@ -485,8 +505,9 @@ class IOSDriver(
 
     override fun waitForAppToSettle(initialHierarchy: ViewHierarchy?, appId: String?, timeoutMs: Int?): ViewHierarchy? {
         return metrics.measured("operation", mapOf("command" to "waitForAppToSettle", "appId" to appId.toString(), "timeoutMs" to timeoutMs.toString())) {
-            LOGGER.info("Waiting for animation to end with timeout $SCREEN_SETTLE_TIMEOUT_MS")
-            val didFinishOnTime = waitUntilScreenIsStatic(SCREEN_SETTLE_TIMEOUT_MS)
+            val timeout = screenSettleTimeoutMs()
+            LOGGER.info("Waiting for animation to end with timeout $timeout")
+            val didFinishOnTime = waitUntilScreenIsStatic(timeout)
 
             if (didFinishOnTime) null else ScreenshotUtils.waitForAppToSettle(initialHierarchy, this, timeoutMs)
         }
@@ -594,7 +615,14 @@ class IOSDriver(
             ELEMENT_TYPE_TOGGLE,
         )
 
-        private const val SCREEN_SETTLE_TIMEOUT_MS: Long = 3000
+        // Resolved at call time so a host app can override at runtime.
+        // Resolution order: JVM system property -> env var -> default 3000ms.
+        // - System property: maestro.ios.screenSettleTimeoutMs
+        // - Env var:         MAESTRO_IOS_SCREEN_SETTLE_TIMEOUT_MS
+        private fun screenSettleTimeoutMs(): Long =
+            System.getProperty("maestro.ios.screenSettleTimeoutMs")?.toLongOrNull()
+                ?: System.getenv("MAESTRO_IOS_SCREEN_SETTLE_TIMEOUT_MS")?.toLongOrNull()
+                ?: 3000L
     }
 }
 
