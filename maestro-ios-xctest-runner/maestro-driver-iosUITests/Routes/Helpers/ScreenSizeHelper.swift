@@ -129,14 +129,13 @@ struct ScreenSizeHelper {
         return switch orientation {
         case .portrait: point
         case .portraitUpsideDown:
-            CGPoint(x: CGFloat(width) - point.x, y: CGFloat(height) - point.y)
+            CGPoint(x: CGFloat(effectiveWidth) - point.x, y: CGFloat(effectiveHeight) - point.y)
         case .landscapeLeft:
             CGPoint(x: CGFloat(effectiveWidth) - point.y, y: CGFloat(point.x))
         case .landscapeRight:
             CGPoint(x: CGFloat(point.y), y: CGFloat(effectiveHeight) - point.x)
-        case .unknown, .faceUp, .faceDown:
-            point
-        @unknown default:
+        default:
+            // .faceUp, .faceDown, unknown — no meaningful 2D rotation, pass through
             point
         }
     }

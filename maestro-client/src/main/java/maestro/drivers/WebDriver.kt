@@ -580,10 +580,6 @@ class WebDriver(
         return true
     }
 
-    override fun isUnicodeInputSupported(): Boolean {
-        return true
-    }
-
     override fun waitForAppToSettle(initialHierarchy: ViewHierarchy?, appId: String?, timeoutMs: Int?): ViewHierarchy {
         return ScreenshotUtils.waitForAppToSettle(initialHierarchy, this)
     }
@@ -624,7 +620,9 @@ class WebDriver(
     private fun queryCss(query: OnDeviceElementQuery.Css): List<TreeNode> {
         ensureOpen()
 
-        val jsResult: Any? = executeJS("return window.maestro.queryCss('${query.css}')")
+        // Encode the selector as a JS string literal so selectors containing quotes
+        val cssArg = jacksonObjectMapper().writeValueAsString(query.css)
+        val jsResult: Any? = executeJS("return window.maestro.queryCss($cssArg)")
 
         if (jsResult == null) {
             return emptyList()
