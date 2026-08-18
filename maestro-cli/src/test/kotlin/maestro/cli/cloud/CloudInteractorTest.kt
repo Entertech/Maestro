@@ -361,7 +361,214 @@ class CloudInteractorTest {
         assertThat(result).isEqualTo(0)
     }
 
+    @Test
+    fun `waitForCompletion writes per-flow cloud run id and URL to JUnit report`() {
+        val uploadStatus = createUploadStatus(
+            completed = true,
+            status = UploadStatus.Status.SUCCESS,
+            startTime = 0L,
+            totalTime = 30L,
+            flows = listOf(
+                createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L, runId = "run_aaa"),
+                createFlowResult("flow2", FlowStatus.ERROR, 0L, 50L, runId = "run_bbb"),
+            )
+        )
+        every { mockApiClient.uploadStatus(any(), any(), any()) } returns uploadStatus
+        val reportFile = File(tempDir, "report.xml")
+
+        createCloudInteractor().waitForCompletion(
+            authToken = "token",
+            uploadId = "upload123",
+            appId = "app123",
+            failOnCancellation = false,
+            reportFormat = ReportFormat.JUNIT,
+            reportOutput = reportFile,
+            testSuiteName = null,
+            uploadUrl = "http://example.com",
+            projectId = "proj_1"
+        )
+
+        val report = reportFile.readText()
+        assertThat(report).contains(
+            """<property name="cloud.runId" value="run_aaa"/>"""
+        )
+        assertThat(report).contains(
+            """<property name="cloud.runUrl" value="https://app.maestro.dev/project/proj_1/maestro-test/flow/run_aaa"/>"""
+        )
+        assertThat(report).contains(
+            """<property name="cloud.runId" value="run_bbb"/>"""
+        )
+        assertThat(report).contains(
+            """<property name="cloud.runUrl" value="https://app.maestro.dev/project/proj_1/maestro-test/flow/run_bbb"/>"""
+        )
+    }
+
+    @Test
+    fun `waitForCompletion writes upload id and URL to JUnit report`() {
+        val uploadStatus = createUploadStatus(
+            completed = true,
+            status = UploadStatus.Status.SUCCESS,
+            startTime = 0L,
+            totalTime = 30L,
+            flows = listOf(
+                createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L, runId = "run_aaa"),
+            )
+        )
+        every { mockApiClient.uploadStatus(any(), any(), any()) } returns uploadStatus
+        val reportFile = File(tempDir, "report.xml")
+
+        val cloudUploadUrl = "https://app.maestro.dev/project/proj_1/maestro-test/app/app123/upload/upload123"
+        createCloudInteractor().waitForCompletion(
+            authToken = "token",
+            uploadId = "upload123",
+            appId = "app123",
+            failOnCancellation = false,
+            reportFormat = ReportFormat.JUNIT,
+            reportOutput = reportFile,
+            testSuiteName = null,
+            uploadUrl = cloudUploadUrl,
+            projectId = "proj_1"
+        )
+
+        val report = reportFile.readText()
+        assertThat(report).contains("""<property name="cloud.uploadId" value="upload123"/>""")
+        assertThat(report).contains("""<property name="cloud.url" value="$cloudUploadUrl"/>""")
+    }
+
+    @Test
+    fun `waitForCompletion omits per-flow cloud run properties when flow has no runId`() {
+        val uploadStatus = createUploadStatus(
+            completed = true,
+            status = UploadStatus.Status.SUCCESS,
+            startTime = 0L,
+            totalTime = 30L,
+            flows = listOf(
+                createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L, runId = null),
+            )
+        )
+        every { mockApiClient.uploadStatus(any(), any(), any()) } returns uploadStatus
+        val reportFile = File(tempDir, "report.xml")
+
+        createCloudInteractor().waitForCompletion(
+            authToken = "token",
+            uploadId = "upload123",
+            appId = "app123",
+            failOnCancellation = false,
+            reportFormat = ReportFormat.JUNIT,
+            reportOutput = reportFile,
+            testSuiteName = null,
+            uploadUrl = "http://example.com",
+            projectId = "proj_1"
+        )
+
+        val report = reportFile.readText()
+        assertThat(report).doesNotContain("cloud.runId")
+        assertThat(report).doesNotContain("cloud.runUrl")
+    }
+
     // ---- waitForCompletion tests (existing) ----
+
+    @Test
+    fun `waitForCompletion retries when a status poll gets no HTTP response and then completes`() {
+        // A dropped poll (statusCode = null) must be retried, not fatal on first occurrence (MA-4180).
+        val successStatus = createUploadStatus(
+            completed = true,
+            status = UploadStatus.Status.SUCCESS,
+            startTime = 0L,
+            totalTime = 30L,
+            flows = listOf(createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L))
+        )
+        var call = 0
+        every { mockApiClient.uploadStatus(any(), any(), any()) } answers {
+            call++
+            if (call == 1) throw ApiClient.ApiException(statusCode = null)
+            successStatus
+        }
+
+        val result = createCloudInteractor().waitForCompletion(
+            authToken = "token",
+            uploadId = "upload123",
+            appId = "app123",
+            failOnCancellation = false,
+            reportFormat = ReportFormat.NOOP,
+            reportOutput = null,
+            testSuiteName = null,
+            uploadUrl = "http://example.com",
+            projectId = "project123"
+        )
+
+        assertThat(result.status).isEqualTo(UploadStatus.Status.SUCCESS)
+        verify(exactly = 2) { mockApiClient.uploadStatus("token", "upload123", "project123") }
+    }
+
+    @Test
+    fun `waitForCompletion throws when status polls never get an HTTP response past the retry budget`() {
+        // Persistent null polls must still fail once the retry budget is exhausted.
+        every { mockApiClient.uploadStatus(any(), any(), any()) } throws ApiClient.ApiException(statusCode = null)
+
+        val error = assertThrows<CliError> {
+            createCloudInteractor().waitForCompletion(
+                authToken = "token",
+                uploadId = "upload123",
+                appId = "app123",
+                failOnCancellation = false,
+                reportFormat = ReportFormat.NOOP,
+                reportOutput = null,
+                testSuiteName = null,
+                uploadUrl = "http://example.com",
+                projectId = "project123"
+            )
+        }
+
+        assertThat(error.message).contains("Failed to fetch the status of an upload upload123")
+        // Initial attempt + 2 retries.
+        verify(exactly = 3) { mockApiClient.uploadStatus("token", "upload123", "project123") }
+    }
+
+    @Test
+    fun `waitForCompletion resets the retry budget after a successful poll so scattered drops are not fatal`() {
+        // maxPollingRetries = 2
+        val runningStatus = createUploadStatus(
+            completed = false,
+            status = UploadStatus.Status.RUNNING,
+            startTime = 0L,
+            totalTime = null,
+            flows = listOf(createFlowResult("flow1", FlowStatus.RUNNING, 0L, null))
+        )
+
+        val finalStatus = createUploadStatus(
+            completed = true,
+            status = UploadStatus.Status.SUCCESS,
+            startTime = 0L,
+            totalTime = 30L,
+            flows = listOf(createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L))
+        )
+
+        var call = 0
+        every { mockApiClient.uploadStatus(any(), any(), any()) } answers {
+            call++
+            when (call) {
+                1, 3, 5 -> throw ApiClient.ApiException(statusCode = null)
+                2, 4 -> runningStatus
+                else -> finalStatus
+            }
+        }
+
+        val result = createCloudInteractor().waitForCompletion(
+            authToken = "token",
+            uploadId = "upload123",
+            appId = "app123",
+            failOnCancellation = false,
+            reportFormat = ReportFormat.NOOP,
+            reportOutput = null,
+            testSuiteName = null,
+            uploadUrl = "http://example.com",
+            projectId = "project123"
+        )
+
+        assertThat(result.status).isEqualTo(UploadStatus.Status.SUCCESS)
+        verify(exactly = 6) { mockApiClient.uploadStatus("token", "upload123", "project123") }
+    }
 
     @Test
     fun `waitForCompletion should return 0 when upload completes successfully`() {
@@ -371,8 +578,8 @@ class CloudInteractorTest {
           startTime = 0L,
           totalTime = 30L,
           flows = listOf(
-            createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 50L),
-            createFlowResult("flow2", FlowStatus.SUCCESS, 0L, 50L)
+            createFlowResult("flow1", FlowStatus.SUCCESS, 0L, 2_400L),
+            createFlowResult("flow2", FlowStatus.SUCCESS, 0L, 3_600L)
           )
         )
         every { mockApiClient.uploadStatus(any(), any(), any()) } returns uploadStatus
@@ -393,14 +600,14 @@ class CloudInteractorTest {
 
         val output = outputStream.toString()
         val cleanOutput = output.replace(Regex("\\u001B\\[[;\\d]*m"), "")
-        assertThat(cleanOutput).contains("[Passed] flow1 (50ms)")
-        assertThat(cleanOutput).contains("[Passed] flow2 (50ms)")
+        assertThat(cleanOutput).contains("[Passed] flow1 (2s)")
+        assertThat(cleanOutput).contains("[Passed] flow2 (4s)")
         assertThat(cleanOutput).contains("2/2 Flows Passed")
         assertThat(cleanOutput).contains("Process will exit with code 0 (SUCCESS)")
         assertThat(cleanOutput).contains("http://example.com")
 
-        val flow1Occurrences = cleanOutput.split("[Passed] flow1 (50ms)").size - 1
-        val flow2Occurrences = cleanOutput.split("[Passed] flow2 (50ms)").size - 1
+        val flow1Occurrences = cleanOutput.split("[Passed] flow1 (2s)").size - 1
+        val flow2Occurrences = cleanOutput.split("[Passed] flow2 (4s)").size - 1
         assertThat(flow1Occurrences).isEqualTo(1)
         assertThat(flow2Occurrences).isEqualTo(1)
     }
@@ -482,7 +689,83 @@ class CloudInteractorTest {
         assertThat(flow2Occurrences).isEqualTo(1)
     }
 
+    // ---- start-device hint: command construction ----
+
+    @Test
+    fun `buildStartDeviceCommand echoes the flags the user passed to cloud verbatim`() {
+        val command = createCloudInteractor().buildStartDeviceCommand(
+            deviceConfiguration = deviceConfiguration(platform = "Android", osVersion = "34", deviceLocale = "en_US", deviceOs = "android-34"),
+            deviceModel = "pixel_7",
+            deviceOs = "android-34",
+            deviceLocale = "fr_FR",
+        )
+
+        assertThat(command).isEqualTo(
+            "maestro start-device --platform=android --device-model=pixel_7 --device-os=android-34 --device-locale=fr_FR"
+        )
+    }
+
+    @Test
+    fun `buildStartDeviceCommand takes model, os and locale from the run config when flags were defaulted`() {
+        val command = createCloudInteractor().buildStartDeviceCommand(
+            deviceConfiguration = deviceConfiguration(platform = "Android", osVersion = "34", deviceLocale = "en_US", deviceOs = "android-34", deviceName = "pixel_7"),
+        )
+
+        // model, os and locale all come from the response's exact fields — deviceName is the
+        // model slug that start-device consumes directly.
+        assertThat(command).isEqualTo(
+            "maestro start-device --platform=android --device-model=pixel_7 --device-os=android-34 --device-locale=en_US"
+        )
+    }
+
+    @Test
+    fun `buildStartDeviceCommand uses the run config's exact iOS device-os including the minor version`() {
+        // The response's deviceOs carries the full prefixed form (iOS-18-2), unlike osVersion which
+        // is the lossy major "18" — the hint must reproduce the exact simulator version.
+        val command = createCloudInteractor().buildStartDeviceCommand(
+            deviceConfiguration = deviceConfiguration(platform = "IOS", osVersion = "18", deviceLocale = "en_US", deviceOs = "iOS-18-2", deviceName = "iPhone-11"),
+        )
+
+        assertThat(command).isEqualTo(
+            "maestro start-device --platform=ios --device-model=iPhone-11 --device-os=iOS-18-2 --device-locale=en_US"
+        )
+    }
+
+    @Test
+    fun `buildStartDeviceCommand falls back to an os placeholder when the run config has no deviceOs`() {
+        val command = createCloudInteractor().buildStartDeviceCommand(
+            deviceConfiguration = deviceConfiguration(platform = "IOS", osVersion = "18", deviceLocale = "en_US", deviceOs = null),
+        )
+
+        assertThat(command).contains("--device-os=<device_os>")
+    }
+
+    @Test
+    fun `buildStartDeviceCommand falls back to a locale placeholder when the run config has none`() {
+        val command = createCloudInteractor().buildStartDeviceCommand(
+            deviceConfiguration = deviceConfiguration(platform = "Android", osVersion = "34", deviceLocale = null, deviceOs = "android-34"),
+        )
+
+        assertThat(command).contains("--device-locale=<device_locale>")
+    }
+
     // ---- Helpers ----
+
+    private fun deviceConfiguration(
+        platform: String,
+        osVersion: String,
+        deviceLocale: String?,
+        deviceOs: String? = null,
+        deviceName: String = "pixel_6",
+    ): DeviceConfiguration = DeviceConfiguration(
+        platform = platform,
+        deviceName = deviceName,
+        orientation = "portrait",
+        osVersion = osVersion,
+        deviceOs = deviceOs,
+        displayInfo = "Test Device",
+        deviceLocale = deviceLocale,
+    )
 
     private fun createUploadStatus(completed: Boolean, status: UploadStatus.Status, flows: List<UploadStatus.FlowResult>, startTime: Long?, totalTime: Long?): UploadStatus {
         return UploadStatus(
@@ -497,13 +780,14 @@ class CloudInteractorTest {
         )
     }
 
-    private fun createFlowResult(name: String, status: FlowStatus, startTime: Long = 0L, totalTime: Long?): UploadStatus.FlowResult {
+    private fun createFlowResult(name: String, status: FlowStatus, startTime: Long = 0L, totalTime: Long?, runId: String? = null): UploadStatus.FlowResult {
         return UploadStatus.FlowResult(
             name = name,
             status = status,
             errors = emptyList(),
             startTime = startTime,
-            totalTime = totalTime
+            totalTime = totalTime,
+            runId = runId
         )
     }
 }

@@ -79,6 +79,9 @@ class IOSDriver(
     private var deviceLogStream: Process? = null
     private var deviceLogFile: java.io.File? = null
 
+    @Volatile
+    private var lastAppCrashDetectedMs: Long = 0
+
     override fun name(): String {
         return metrics.measured("name") {
             NAME
@@ -553,6 +556,18 @@ class IOSDriver(
         LOGGER.warn("Airplane mode is not available on iOS simulators")
     }
 
+    override fun isDarkModeEnabled(): Boolean {
+        return metrics.measured("operation", mapOf("command" to "isDarkModeEnabled")) {
+            runDeviceCall("isDarkModeEnabled") { iosDevice.isDarkModeEnabled() }
+        }
+    }
+
+    override fun setDarkMode(enabled: Boolean) {
+        metrics.measured("operation", mapOf("command" to "setDarkMode")) {
+            runDeviceCall("setDarkMode") { iosDevice.setAppearance(if (enabled) "dark" else "light") }
+        }
+    }
+
     private fun addMediaToDevice(mediaFile: File) {
         metrics.measured("operation", mapOf("command" to "addMediaToDevice")) {
             val namedSource = NamedSource(
@@ -624,8 +639,9 @@ class IOSDriver(
         val simulatorId = iosDevice.deviceId ?: return emptyList()
         if (appId == null) return emptyList()
         return try {
-            val crashFile = IOSCrashFileFinder().findCrashFile(simulatorId, appId)
-                ?.takeIf { it.lastModified() >= sinceEpochMs } ?: return emptyList()
+            val timeoutMs = if (lastAppCrashDetectedMs >= sinceEpochMs) CRASH_REPORT_TIMEOUT_MS else 0
+            val crashFile = IOSCrashFileFinder()
+                .waitForCrashFile(simulatorId, appId, sinceEpochMs, timeoutMs) ?: return emptyList()
             val parsed = IPSParser.parse(crashFile.readText())
             val dest = File(outputDir, DeviceArtifactFiles.CRASH_REPORT)
             crashFile.copyTo(dest, overwrite = true)
@@ -647,6 +663,7 @@ class IOSDriver(
             LOGGER.error("Device unreachable while processing $callName command", unreachable)
             throw DeviceUnreachableException(unreachable.callName, unreachable)
         } catch (appCrashException: IOSDeviceErrors.AppCrash) {
+            lastAppCrashDetectedMs = System.currentTimeMillis()
             LOGGER.error("Detected app crash during $callName command", appCrashException)
             throw MaestroException.AppCrash(appCrashException.errorMessage)
         } catch (timeoutException: IOSDeviceErrors.OperationTimeout) {
@@ -703,6 +720,8 @@ class IOSDriver(
                 ?: 3000L
 
         private const val LOG_FLUSH_TIMEOUT_SECONDS: Long = 2
+
+        private const val CRASH_REPORT_TIMEOUT_MS: Long = 15_000
     }
 }
 
