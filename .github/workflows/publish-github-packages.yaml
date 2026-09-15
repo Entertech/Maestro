@@ -1,0 +1,97 @@
+name: Publish to GitHub Packages
+
+# Fork-only (Entertech/Maestro). Publishes the ai.looktech:maestro-* artifacts of the current
+# VERSION_NAME (gradle.properties) to GitHub Packages, https://maven.pkg.github.com/Entertech/Maestro.
+# Manual dispatch only; publish-release.yaml (Maven Central) is left untouched as the fallback path.
+# GitHub Packages has no staging step: the version is visible as soon as the job succeeds, and an
+# existing version cannot be re-uploaded, so iterate by bumping -looktech.N (or a -SNAPSHOT).
+
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Module to publish'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - maestro-utils
+          - maestro-client
+          - maestro-ios
+          - maestro-orchestra
+          - maestro-orchestra-models
+          - maestro-proto
+          - maestro-ios-driver
+          - maestro-ai
+          - maestro-web
+          - maestro-cli
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.repository == 'Entertech/Maestro'
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 17
+          cache: gradle
+
+      - name: Retrieve version
+        run: |
+          echo "VERSION_NAME=$(cat gradle.properties | grep -w "VERSION_NAME" | cut -d'=' -f2)" >> $GITHUB_ENV
+
+      - name: Publish to GitHub Packages
+        run: |
+          echo "Publishing ai.looktech:* $VERSION_NAME (module: $PUBLISH_MODULE) to GitHub Packages"
+
+          case "$PUBLISH_MODULE" in
+            all)
+              modules=(
+                maestro-utils
+                maestro-client
+                maestro-ios
+                maestro-orchestra
+                maestro-orchestra-models
+                maestro-proto
+                maestro-ios-driver
+                maestro-ai
+                maestro-web
+                maestro-cli
+              )
+              ;;
+            maestro-utils|maestro-client|maestro-ios|maestro-orchestra|maestro-orchestra-models|maestro-proto|maestro-ios-driver|maestro-ai|maestro-web|maestro-cli)
+              modules=("$PUBLISH_MODULE")
+              ;;
+            *)
+              echo "Unsupported module: $PUBLISH_MODULE"
+              exit 1
+              ;;
+          esac
+
+          tasks=()
+          for module in "${modules[@]}"; do
+            tasks+=(":$module:publishAllPublicationsToGitHubPackagesRepository")
+          done
+
+          ./gradlew clean "${tasks[@]}" \
+            --init-script .github/scripts/github-packages-publish.init.gradle \
+            --no-daemon --no-parallel
+        env:
+          PUBLISH_MODULE: ${{ inputs.module }}
+          GITHUB_PACKAGES_REPOSITORY: Maestro
+          GITHUB_PACKAGES_USER: ${{ github.actor }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_IN_MEMORY_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}

@@ -1,0 +1,46 @@
+import org.gradle.api.publish.PublishingExtension
+
+// Fork-only helper (Entertech/Maestro). Adds a "GitHubPackages" Maven repository to every
+// project that applies maven-publish, so
+//
+//   ./gradlew --init-script .github/scripts/github-packages-publish.init.gradle \
+//       :maestro-client:publishAllPublicationsToGitHubPackagesRepository
+//
+// publishes exactly the publications (and signatures) that publishToMavenCentral publishes,
+// without touching any module's build file. Mirrors the init script used by lt-rpc-core.
+//
+// Inputs: -PgithubPackagesRepository / GITHUB_PACKAGES_REPOSITORY (default "Maestro"),
+// GITHUB_PACKAGES_USER (or GITHUB_ACTOR) and GITHUB_PACKAGES_TOKEN (or GITHUB_TOKEN).
+
+def githubPackagesRepository = gradle.startParameter.projectProperties['githubPackagesRepository']
+    ?: System.getenv('GITHUB_PACKAGES_REPOSITORY')
+    ?: 'Maestro'
+
+def githubPackagesUser = System.getenv('GITHUB_PACKAGES_USER')
+    ?: System.getenv('GITHUB_ACTOR')
+if (!githubPackagesUser) {
+    throw new GradleException('Set GITHUB_PACKAGES_USER or GITHUB_ACTOR')
+}
+
+def githubPackagesToken = System.getenv('GITHUB_PACKAGES_TOKEN')
+    ?: System.getenv('GITHUB_TOKEN')
+if (!githubPackagesToken) {
+    throw new GradleException('Set GITHUB_PACKAGES_TOKEN or GITHUB_TOKEN')
+}
+
+allprojects {
+    plugins.withId('maven-publish') {
+        extensions.configure(PublishingExtension) { publishing ->
+            publishing.repositories {
+                maven {
+                    name = 'GitHubPackages'
+                    url = uri("https://maven.pkg.github.com/Entertech/${githubPackagesRepository}")
+                    credentials {
+                        username = githubPackagesUser
+                        password = githubPackagesToken
+                    }
+                }
+            }
+        }
+    }
+}
