@@ -55,13 +55,19 @@ struct ScreenSizeHelper {
 
     private static func actualOrientation() -> UIDeviceOrientation {
         let orientation = XCUIDevice.shared.orientation
-        if orientation == .unknown {
-            // If orientation is "unknown", we assume it is "portrait" to
+        switch orientation {
+        case .portrait, .portraitUpsideDown, .landscapeLeft, .landscapeRight:
+            return orientation
+        case .unknown, .faceUp, .faceDown:
+            // These physical device postures do not describe the app interface orientation.
+            // Treat them as portrait, matching currentInterfaceOrientation's fallback.
+            //
+            // For "unknown", this also preserves the workaround for
             // work around https://stackoverflow.com/q/78932288/7009800
             return UIDeviceOrientation.portrait
+        @unknown default:
+            return UIDeviceOrientation.portrait
         }
-
-        return orientation
     }
 
     /// Returns the current UIInterfaceOrientation derived from the device's UIDeviceOrientation.
@@ -121,11 +127,16 @@ struct ScreenSizeHelper {
 
         return switch orientation {
         case .portrait: point
+        case .portraitUpsideDown:
+            CGPoint(x: CGFloat(width) - point.x, y: CGFloat(height) - point.y)
         case .landscapeLeft:
             CGPoint(x: CGFloat(effectiveWidth) - point.y, y: CGFloat(point.x))
         case .landscapeRight:
             CGPoint(x: CGFloat(point.y), y: CGFloat(effectiveHeight) - point.x)
-        default: fatalError("Not implemented yet")
+        case .unknown, .faceUp, .faceDown:
+            point
+        @unknown default:
+            point
         }
     }
 }
